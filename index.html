@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SSL 根证书检测工具</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --success-color: #28a745;
+            --fail-color: #dc3545;
+            --bg-color: #f8f9fa;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg-color); color: #333; line-height: 1.6; padding: 40px 20px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h1 { font-size: 1.5rem; margin-bottom: 20px; color: #222; border-left: 5px solid var(--primary-color); padding-left: 15px; }
+        
+        .stats { display: flex; gap: 20px; margin-bottom: 20px; padding: 15px; background: #eee; border-radius: 8px; font-size: 0.9rem; }
+        .stat-item { flex: 1; text-align: center; }
+        .stat-value { display: block; font-size: 1.2rem; font-weight: bold; }
+
+        .cert-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #edf2f7; transition: background 0.2s; }
+        .cert-item:hover { background: #fcfcfc; }
+        .cert-info { flex-grow: 1; }
+        .cert-name { font-weight: 600; display: block; }
+        .cert-domain { font-size: 0.8rem; color: #777; word-break: break-all; }
+        
+        .status { min-width: 120px; text-align: right; font-weight: bold; font-size: 0.9rem; }
+        .checking { color: var(--primary-color); }
+        .success { color: var(--success-color); }
+        .fail { color: var(--fail-color); }
+
+        button { background: var(--primary-color); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 1rem; width: 100%; margin-top: 20px; transition: opacity 0.2s; }
+        button:hover { opacity: 0.9; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>根证书兼容性检查</h1>
+    
+    <div class="stats">
+        <div class="stat-item">总计: <span id="total-count" class="stat-value">0</span></div>
+        <div class="stat-item" style="color: var(--success-color);">正常: <span id="success-count" class="stat-value">0</span></div>
+        <div class="stat-item" style="color: var(--fail-color);">异常: <span id="fail-count" class="stat-value">0</span></div>
+    </div>
+
+    <div id="cert-list">
+        </div>
+
+    <button onclick="runDetection()">重新开始检测</button>
+</div>
+
+<script>
+    /**
+     * 配置文件：在此处添加或修改需要检测的证书
+     * name: 证书的友好名称
+     * url: 该证书签名的测试域名（建议指向一个 favicon 或小图）
+     */
+    const CONFIG = [
+        {
+          name: "DigiCert Global Root CA (This is G1)",
+          url: "https://global-root-ca.chain-demos.digicert.com/favicon.ico"
+        },
+        {
+          name: "DigiCert Global Root G2",
+          url: "https://global-root-g2.chain-demos.digicert.com/favicon.ico"
+          // url: "https://g2-digicert.it.tencent.com/favicon.ico"
+        },
+        {
+          name: "Digicert TLS RSA4096 Root G5",
+          url: "https://digicert-tls-rsa4096-root-g5.chain-demos.digicert.com/favicon.ico"
+        },
+        // {
+        //   name: "GlobalSign Root CA -- Error",
+        //   url: "https://valid.ca.roots.globalsign.com/favicon.ico"
+        // },
+        {
+          name: "GlobalSign Root R3",
+          url: "https://valid.r3.roots.globalsign.com/favicon.ico"
+        },
+        {
+          name: "GlobalSign Root R46",
+          url: "https://valid.r46.roots.globalsign.com/favicon.ico"
+          // url: "https://aaaabbbb.easy-signing.com/favicon.ico"
+        },
+        {
+          name: "GlobalSign Root R3R46",
+          url: "https://r3cross.r46.roots.globalsign.com/favicon.ico"
+        },
+        {
+          name: "Baltimore CyberTrust Root (Should False)",
+          url: "https://baltimore-cybertrust-root.chain-demos.digicert.com/favicon.ico"
+        },
+    ];
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // 初始化渲染列表
+    function initList() {
+        const listContainer = document.getElementById('cert-list');
+        listContainer.innerHTML = '';
+        document.getElementById('total-count').textContent = CONFIG.length;
+
+        CONFIG.forEach((cert, index) => {
+            const div = document.createElement('div');
+            div.className = 'cert-item';
+            div.innerHTML = `
+                <div class="cert-info">
+                    <span class="cert-name">${cert.name}</span>
+                    <span class="cert-domain">${new URL(cert.url).hostname}</span>
+                </div>
+                <div class="status checking" id="status-${index}">准备中...</div>
+            `;
+            listContainer.appendChild(div);
+        });
+    }
+
+    // 执行检测逻辑
+    async function runDetection() {
+        successCount = 0;
+        failCount = 0;
+        updateStats();
+
+        const tasks = CONFIG.map((cert, index) => {
+            return new Promise(async (resolve) => {
+                const statusEl = document.getElementById(`status-${index}`);
+                statusEl.className = 'status checking';
+                statusEl.textContent = '检测中...';
+
+                // 1. 基础检查：是否联网
+                if (!navigator.onLine) {
+                    handleResult(false, statusEl, "网络已断开");
+                    return resolve();
+                }
+
+                try {
+                    // 2. 使用 fetch 进行探测
+                    // cache: 'no-store' 确保不走缓存
+                    // mode: 'no-cors' 允许跨域握手而不要求目标站配置 CORS
+                    const controller = new AbortController();
+                    const id = setTimeout(() => controller.abort(), 10000); // 10秒超时
+
+                    await fetch(cert.url, { 
+                        mode: 'no-cors', 
+                        cache: 'no-store',
+                        signal: controller.signal 
+                    });
+
+                    clearTimeout(id);
+                    // 如果能走到这一步，说明 SSL 握手成功
+                    handleResult(true, statusEl);
+                } catch (err) {
+                    // 如果进入 catch，通常是：证书无效、域名解析失败、或请求被中途拦截
+                    console.warn(`检测项目 ${cert.name} 失败:`, err);
+                    
+                    let reason = "不存在/受阻";
+                    if (err.name === 'AbortError') reason = "请求超时";
+                    
+                    handleResult(false, statusEl, reason);
+                }
+                resolve();
+            });
+        });
+
+        await Promise.all(tasks);
+    }
+
+    function handleResult(isSuccess, element, reason) {
+        if (isSuccess) {
+            element.className = 'status success';
+            element.textContent = '✅ 已安装';
+            successCount++;
+        } else {
+            element.className = 'status fail';
+            element.textContent = '❌ ' + reason;
+            failCount++;
+        }
+        updateStats();
+    }
+
+    function updateStats() {
+        document.getElementById('success-count').textContent = successCount;
+        document.getElementById('fail-count').textContent = failCount;
+    }
+
+    // 页面加载后启动
+    window.onload = () => {
+        initList();
+        runDetection();
+    };
+</script>
+
+</body>
+</html>
