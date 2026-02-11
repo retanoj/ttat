@@ -56,41 +56,50 @@
      * 配置文件：在此处添加或修改需要检测的证书
      * name: 证书的友好名称
      * url: 该证书签名的测试域名（建议指向一个 favicon 或小图）
+     * expect: 期望结果，true 表示期望 SSL 握手成功，false 表示期望握手失败
      */
     const CONFIG = [
         {
-          name: "DigiCert Global Root CA (This is G1)",
-          url: "https://global-root-ca.chain-demos.digicert.com/favicon.ico"
+          name: "DigiCert Global Root CA (G1)",
+          url: "https://global-root-ca.chain-demos.digicert.com/favicon.ico",
+          expect: true
         },
         {
           name: "DigiCert Global Root G2",
-          url: "https://global-root-g2.chain-demos.digicert.com/favicon.ico"
+          url: "https://global-root-g2.chain-demos.digicert.com/favicon.ico",
           // url: "https://g2-digicert.it.tencent.com/favicon.ico"
-        },
-        {
-          name: "Digicert TLS RSA4096 Root G5",
-          url: "https://digicert-tls-rsa4096-root-g5.chain-demos.digicert.com/favicon.ico"
+          expect: true
         },
         // {
-        //   name: "GlobalSign Root CA -- Error",
-        //   url: "https://valid.ca.roots.globalsign.com/favicon.ico"
+        //   name: "Digicert TLS RSA4096 Root G5",
+        //   url: "https://digicert-tls-rsa4096-root-g5.chain-demos.digicert.com/favicon.ico",
+        //   expect: true
+        //   // G5 被 ROOT CA 签署了
+        // },
+        // {
+        //   name: "GlobalSign Root CA",
+        //   url: "https://valid.r1.roots.globalsign.com/favicon.ico",
+        //   expect: true
         // },
         {
-          name: "GlobalSign Root R3",
-          url: "https://valid.r3.roots.globalsign.com/favicon.ico"
+          name: "GlobalSign Root CA - R3",
+          url: "https://valid.r3.roots.globalsign.com/favicon.ico",
+          expect: true
         },
         {
           name: "GlobalSign Root R46",
-          url: "https://valid.r46.roots.globalsign.com/favicon.ico"
-          // url: "https://aaaabbbb.easy-signing.com/favicon.ico"
+          url: "https://aaaabbbb.easy-signing.com/favicon.ico",
+          expect: true
         },
         {
           name: "GlobalSign Root R3R46",
-          url: "https://r3cross.r46.roots.globalsign.com/favicon.ico"
+          url: "https://r3cross.r46.roots.globalsign.com/favicon.ico",
+          expect: true
         },
         {
-          name: "Baltimore CyberTrust Root (Should False)",
-          url: "https://baltimore-cybertrust-root.chain-demos.digicert.com/favicon.ico"
+          name: "Baltimore CyberTrust Root",
+          url: "https://baltimore-cybertrust-root.chain-demos.digicert.com/favicon.ico",
+          expect: false
         },
     ];
 
@@ -131,7 +140,7 @@
 
                 // 1. 基础检查：是否联网
                 if (!navigator.onLine) {
-                    handleResult(false, statusEl, "网络已断开");
+                    handleResult(false, statusEl, cert.expect, "网络已断开");
                     return resolve();
                 }
 
@@ -150,15 +159,15 @@
 
                     clearTimeout(id);
                     // 如果能走到这一步，说明 SSL 握手成功
-                    handleResult(true, statusEl);
+                    handleResult(true, statusEl, cert.expect);
                 } catch (err) {
                     // 如果进入 catch，通常是：证书无效、域名解析失败、或请求被中途拦截
                     console.warn(`检测项目 ${cert.name} 失败:`, err);
-                    
+
                     let reason = "不存在/受阻";
                     if (err.name === 'AbortError') reason = "请求超时";
-                    
-                    handleResult(false, statusEl, reason);
+
+                    handleResult(false, statusEl, cert.expect, reason);
                 }
                 resolve();
             });
@@ -167,14 +176,24 @@
         await Promise.all(tasks);
     }
 
-    function handleResult(isSuccess, element, reason) {
-        if (isSuccess) {
+    function handleResult(actualSuccess, element, expectedSuccess, failReason = '') {
+        const isExpected = (actualSuccess === expectedSuccess);
+
+        if (isExpected) {
             element.className = 'status success';
-            element.textContent = '✅ 已安装';
+            if (actualSuccess) {
+                element.textContent = '✅ 已安装';
+            } else {
+                element.textContent = '✅ 预期失败';
+            }
             successCount++;
         } else {
             element.className = 'status fail';
-            element.textContent = '❌ ' + reason;
+            if (actualSuccess) {
+                element.textContent = '❌ 意外成功';
+            } else {
+                element.textContent = '❌ ' + failReason;
+            }
             failCount++;
         }
         updateStats();
