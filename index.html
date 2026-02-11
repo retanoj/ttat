@@ -70,12 +70,11 @@
           // url: "https://g2-digicert.it.tencent.com/favicon.ico"
           expect: true
         },
-        // {
-        //   name: "Digicert TLS RSA4096 Root G5",
-        //   url: "https://digicert-tls-rsa4096-root-g5.chain-demos.digicert.com/favicon.ico",
-        //   expect: true
-        //   // G5 被 ROOT CA 签署了
-        // },
+        {
+          name: "Digicert TLS RSA4096 Root G5 (Influenced by G1)",
+          url: "https://digicert-tls-rsa4096-root-g5.chain-demos.digicert.com/favicon.ico",
+          expect: true
+        },
         // {
         //   name: "GlobalSign Root CA",
         //   url: "https://valid.r1.roots.globalsign.com/favicon.ico",
@@ -97,6 +96,11 @@
           expect: true
         },
         {
+		  name: "Sectigo USERTrust (Influenced by Sectigo Root R46)",
+		  url: "https://www.sectigo.com/favicon.ico",
+		  expect: true
+		},
+		{
           name: "Baltimore CyberTrust Root",
           url: "https://baltimore-cybertrust-root.chain-demos.digicert.com/favicon.ico",
           expect: false
